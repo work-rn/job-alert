@@ -1,8 +1,8 @@
 """
 Daily AI-powered job alert:
 1. Stage A: Cheaply fetch LinkedIn job IDs/URLs via Apify (no descriptions) since last run.
-2. Filter out already-seen job IDs stored in `seen_jobs.json`.
-3. Stage B: Fetch full descriptions ONLY for brand-new job URLs.
+2. Filter out already-seen job IDs stored in `seen_jobs.json` and non-Malaysia locations.
+3. Stage B: Fetch full descriptions ONLY for brand-new Malaysian job URLs.
 4. Score each new job against `CV_TEXT` secret using Gemini 2.5 Flash + generate tailored bullets.
 5. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`),
    and email the new matches.
@@ -25,6 +25,39 @@ from pydantic import BaseModel, Field
 
 # ---- Settings -------------------------------------------------------------
 ACTOR_ID = "mighty_monk/linkedin-jobs-scraper"
+MALAYSIA_GEO_ID = "106808692"
+
+MALAYSIA_TERMS = (
+    "malaysia",
+    "kuala lumpur",
+    "selangor",
+    "penang",
+    "pulau pinang",
+    "johor",
+    "cyberjaya",
+    "putrajaya",
+    "petaling",
+    "shah alam",
+    "subang",
+    "puchong",
+    "klang",
+    "damansara",
+    "bangsar",
+    "mont kiara",
+    "perak",
+    "ipoh",
+    "melaka",
+    "malacca",
+    "negeri sembilan",
+    "seremban",
+    "pahang",
+    "kuantan",
+    "kedah",
+    "sarawak",
+    "kuching",
+    "sabah",
+    "kota kinabalu",
+)
 
 DEFAULT_QUERIES = [
     '"AI" AND ("Program Manager" OR "Project Manager" OR "Transformation" OR "Adoption")',
@@ -99,16 +132,23 @@ def search_url(query: str, hours_back: int) -> str:
     return (
         "https://www.linkedin.com/jobs/search/"
         f"?keywords={quote_plus(query)}&location={quote_plus(LOCATION)}"
-        f"&f_TPR=r{hours_back * 3600}&sortBy=DD"
+        f"&geoId={MALAYSIA_GEO_ID}&f_TPR=r{hours_back * 3600}&sortBy=DD"
     )
+
+
+def _is_malaysia_location(location_str: str) -> bool:
+    loc = (location_str or "").strip().lower()
+    if not loc:
+        return True  # Allow empty location metadata to be verified in Stage B
+    return any(term in loc for term in MALAYSIA_TERMS)
 
 
 def _run_apify(client: ApifyClient, urls: list[str], include_desc: bool, max_jobs: int) -> list[dict]:
     run_input = {
         "searchUrls": urls,
         "maxJobs": max_jobs,
-        "maxConcurrency": 2,
-        "requestDelayMs": 1500,
+        "maxConcurrency": 1,
+        "requestDelayMs": 2500,
         "includeDescription": include_desc,
         "proxyConfiguration": {"useApifyProxy": True},
     }
@@ -122,11 +162,13 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
 
     # Stage A: Cheap metadata-only scan (no descriptions scraped)
     urls = [search_url(q, hours_back) for q in QUERIES]
-    print(f"Stage A: Scanning {len(urls)} search URL(s) for last {hours_back}h (metadata only)...")
+    print(f"Stage A: Scanning {len(urls)} search URL(s) in Malaysia for last {hours_back}h (metadata only)...")
     shallow_items = _run_apify(client, urls, include_desc=False, max_jobs=MAX_JOBS)
 
     new_candidates = []
     batch_seen = set()
+    skipped_location = 0
+
     for item in shallow_items:
         job_id = str(item.get("jobId") or item.get("id") or item.get("jobUrl") or "").strip()
         job_url = (item.get("jobUrl") or item.get("applyUrl") or "").strip()
@@ -134,16 +176,25 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
             continue
         if not item.get("title"):
             continue
+
+        loc_raw = item.get("location") or ""
+        if not _is_malaysia_location(loc_raw):
+            skipped_location += 1
+            continue
+
         batch_seen.add(job_id)
         item["_clean_id"] = job_id
         item["_clean_url"] = job_url
         new_candidates.append(item)
 
-    print(f"Stage A found {len(shallow_items)} total -> {len(new_candidates)} unseen job(s).")
+    print(
+        f"Stage A found {len(shallow_items)} total -> "
+        f"skipped {skipped_location} non-Malaysia -> {len(new_candidates)} unseen Malaysia job(s)."
+    )
     if not new_candidates:
         return []
 
-    # Stage B: Scrape full descriptions ONLY for brand-new job URLs
+    # Stage B: Scrape full descriptions ONLY for brand-new Malaysian job URLs
     new_urls = [c["_clean_url"] for c in new_candidates]
     print(f"Stage B: Fetching full descriptions for {len(new_urls)} unseen job(s)...")
     detailed_items = _run_apify(client, new_urls, include_desc=True, max_jobs=len(new_urls))
@@ -176,7 +227,14 @@ def evaluate_jobs_with_ai(jobs: list[dict], cv_text: str, seen_map: dict) -> lis
         job_id = job["_clean_id"]
         title = job.get("title", "Unknown Role")
         company = job.get("company") or job.get("companyName") or "Unknown Company"
+        loc = job.get("location") or LOCATION
         desc = job.get("description") or job.get("descriptionText") or ""
+
+        print(f"Checking [{job_id}]: {title} @ {company} ({loc})")
+
+        if not _is_malaysia_location(loc):
+            seen_map[job_id] = {"status": "skipped_location", "date": today_str, "title": title}
+            continue
 
         if not desc.strip():
             seen_map[job_id] = {"status": "no_description", "date": today_str, "title": title}
@@ -194,7 +252,7 @@ CANDIDATE CV:
 
 JOB TITLE: {title}
 COMPANY: {company}
-LOCATION: {job.get("location", LOCATION)}
+LOCATION: {loc}
 JOB DESCRIPTION:
 {desc[:7000]}
 """
@@ -218,7 +276,7 @@ JOB DESCRIPTION:
                     "id": job_id,
                     "title": title,
                     "company": company,
-                    "location": job.get("location") or LOCATION,
+                    "location": loc,
                     "posted_at": str(job.get("postedAt") or today_str),
                     "found_date": today_str,
                     "url": job["_clean_url"],
@@ -248,7 +306,7 @@ def build_email(new_matches: list[dict], hours_back: int) -> tuple[str, str]:
 
     if not new_matches:
         body = (
-            f"<p>No new jobs scored &ge; {MIN_MATCH_SCORE}/10 in the last {hours_back} hours.</p>"
+            f"<p>No new Malaysia jobs scored &ge; {MIN_MATCH_SCORE}/10 in the last {hours_back} hours.</p>"
             f"{pages_link}"
         )
         return subject, body
@@ -272,7 +330,7 @@ def build_email(new_matches: list[dict], hours_back: int) -> tuple[str, str]:
         )
 
     body = (
-        f"<p>Found <b>{len(new_matches)}</b> role(s) matching your CV (&ge; {MIN_MATCH_SCORE}/10):</p>"
+        f"<p>Found <b>{len(new_matches)}</b> role(s) in Malaysia matching your CV (&ge; {MIN_MATCH_SCORE}/10):</p>"
         f"{pages_link}"
         f'{"".join(cards)}'
     )
@@ -280,7 +338,7 @@ def build_email(new_matches: list[dict], hours_back: int) -> tuple[str, str]:
 
 
 def send_email(subject: str, html_body: str) -> None:
-    sender = os.environ["GMAIL_ADDRESS"]
+    sender = os.environ["GMAIL_ADDRESS"].strip()
     recipient = os.environ.get("EMAIL_TO", "").strip() or sender
 
     msg = EmailMessage()
@@ -291,14 +349,14 @@ def send_email(subject: str, html_body: str) -> None:
     msg.add_alternative(html_body, subtype="html")
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context()) as smtp:
-        smtp.login(sender, os.environ["GMAIL_APP_PASSWORD"])
+        smtp.login(sender, os.environ["GMAIL_APP_PASSWORD"].strip())
         smtp.send_message(msg)
 
 
 def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
     DASHBOARD_FILE.parent.mkdir(parents=True, exist_ok=True)
-    repo = os.environ.get("GITHUB_REPOSITORY", "YOUR_USERNAME/YOUR_REPO")
-    owner, repo_name = repo.split("/", 1) if "/" in repo else ("YOUR_USERNAME", "YOUR_REPO")
+    repo = os.environ.get("GITHUB_REPOSITORY", "work-rn/job-alert")
+    owner, repo_name = repo.split("/", 1) if "/" in repo else ("work-rn", "job-alert")
     jobs_json = json.dumps(all_matches, ensure_ascii=False)
 
     html = f"""<!DOCTYPE html>
