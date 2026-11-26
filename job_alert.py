@@ -85,6 +85,7 @@ MAX_JOBS = int(_env("MAX_JOBS", "15"))
 DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "24"))
 MIN_MATCH_SCORE = int(_env("MIN_MATCH_SCORE", "7"))
 IGNORE_SEEN = _env("IGNORE_SEEN", "false").lower() in ("1", "true", "yes")
+GEMINI_MODEL = _env("GEMINI_MODEL", "gemini-3.8-flash")
 
 STATE_FILE = Path("seen_jobs.json")
 DASHBOARD_FILE = Path("docs/index.html")
@@ -260,7 +261,7 @@ LOCATION: {loc}
 """
         try:
             response = ai_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=GEMINI_MODEL,
                 contents=prompt,
                 config={
                     "response_mime_type": "application/json",
