@@ -278,12 +278,12 @@ def evaluate_jobs_with_ai(jobs: list[dict], cv_text: str, seen_map: dict) -> lis
         }
         desc_text = desc[:1500] if desc else "[Unavailable due to LinkedIn anti-bot wall — evaluate strictly from Job Title, Company, Seniority, and Location.]"
         job_blocks.append(
-            f"---
+            f"""---
 JOB_ID: {job_id}
 TITLE: {title}
 COMPANY: {company}
 LOCATION: {loc}
-DESCRIPTION: {desc_text}"
+DESCRIPTION: {desc_text}"""
         )
 
     prompt = f"""
