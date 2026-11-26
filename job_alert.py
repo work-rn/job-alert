@@ -1,8 +1,8 @@
 """
 Daily AI-powered job alert:
 1. Fetch recent Malaysia LinkedIn jobs + full descriptions via Apify (`geoId=106808692`).
-2. Filter out non-Malaysia locations and cap total evaluated jobs at 15 to protect Apify usage.
-3. Score each job against `CV_TEXT` secret using Gemini 2.5 Flash + generate tailored bullets.
+2. Use Residential proxies so LinkedIn does not block detail pages (`desc_len > 0`).
+3. Score each job against `CV_TEXT` secret using Gemini 2.5 Flash (with title-only fallback if a page is blocked).
 4. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`),
    and email the new matches.
 """
@@ -150,20 +150,23 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
     client = ApifyClient(os.environ["APIFY_TOKEN"])
     urls = [search_url(q, hours_back) for q in QUERIES]
 
-    # Cap per-query fetch so total Apify dataset stays around MAX_JOBS (15)
-    per_query_cap = max(5, (MAX_JOBS // len(urls)) + 1)
-
+    # Set maxJobs to MAX_JOBS (15) across the run so Apify fetches up to 15 full job details
     print(
         f"Scanning {len(urls)} Malaysia search URL(s) for last {hours_back}h "
-        f"(ignore_seen={IGNORE_SEEN}, max_total={MAX_JOBS}, per_query_cap={per_query_cap})..."
+        f"(ignore_seen={IGNORE_SEEN}, max_total={MAX_JOBS}, proxy=RESIDENTIAL)..."
     )
     run_input = {
         "searchUrls": urls,
-        "maxJobs": per_query_cap,
+        "maxJobs": MAX_JOBS,
         "maxConcurrency": 1,
-        "requestDelayMs": 2500,
+        "requestDelayMs": 3000,
+        "maxRequestsPerMinute": 15,
+        "maxRequestRetries": 5,
         "includeDescription": True,
-        "proxyConfiguration": {"useApifyProxy": True},
+        "proxyConfiguration": {
+            "useApifyProxy": True,
+            "apifyProxyGroups": ["RESIDENTIAL"],
+        },
     }
     run = client.actor(ACTOR_ID).call(run_input=run_input)
     dataset_id = run["defaultDatasetId"] if isinstance(run, dict) else run.default_dataset_id
@@ -226,16 +229,21 @@ def evaluate_jobs_with_ai(jobs: list[dict], cv_text: str, seen_map: dict) -> lis
             seen_map[job_id] = {"status": "skipped_location", "date": today_str, "title": title}
             continue
 
-        if not desc:
-            print(f"  -> Missing description for [{job_id}]. Available fields: {list(job.keys())}")
-            seen_map[job_id] = {"status": "no_description", "date": today_str, "title": title}
-            continue
+        if desc:
+            desc_section = f"JOB DESCRIPTION:\n{desc[:7000]}"
+            fallback_note = ""
+        else:
+            desc_section = (
+                "JOB DESCRIPTION:\n[Unavailable due to LinkedIn anti-bot wall. "
+                "Evaluate strictly based on Job Title, Company, Seniority, and Location alignment with the candidate's CV.]"
+            )
+            fallback_note = " (Title-based evaluation — click link to view full description on LinkedIn)"
 
         prompt = f"""
 Evaluate how well this candidate matches the job posting below.
 Be realistic and selective:
 - Score >= {MIN_MATCH_SCORE} ONLY if the candidate's seniority, leadership scope, and core technical/domain experience genuinely align.
-- Penalize junior roles, pure sales/pre-sales quotas, or unrelated domain stacks.
+- Penalize junior roles, pure sales/pre-sales quotas, or unrelated domain stacks (e.g., general retail banking division manager or pure software engineering).
 - Write 3 tailored, metric-oriented resume bullet points that position the candidate's real background for this specific role.
 
 CANDIDATE CV:
@@ -244,8 +252,7 @@ CANDIDATE CV:
 JOB TITLE: {title}
 COMPANY: {company}
 LOCATION: {loc}
-JOB DESCRIPTION:
-{desc[:7000]}
+{desc_section}
 """
         try:
             response = ai_client.models.generate_content(
@@ -273,7 +280,7 @@ JOB DESCRIPTION:
                     "found_date": today_str,
                     "url": job["_clean_url"],
                     "score": score,
-                    "reason": result.get("reason", ""),
+                    "reason": (result.get("reason", "") + fallback_note).strip(),
                     "bullets": result.get("tailored_bullets", []),
                 })
             else:
