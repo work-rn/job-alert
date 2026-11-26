@@ -1,5 +1,5 @@
 {
-  "last_run_utc": "2026-11-26T15:53:33.896137+00:00",
+  "last_run_utc": "2026-11-26T16:04:56.628876+00:00",
   "seen": {
     "4495000653": {
       "status": "no_description",
@@ -195,6 +195,46 @@
       "status": "no_description",
       "date": "2026-11-26",
       "title": "Commercial Excellence Lead"
+    },
+    "4493181463": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Incident Manager (ITSM)"
+    },
+    "4483441706": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Division Manager"
+    },
+    "4475934721": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Operations Manager"
+    },
+    "4467612466": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Service Delivery Manager"
+    },
+    "4493614386": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Lead ITSM - ServiceNow"
+    },
+    "4467840713": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Service Recovery Head (Application Support)"
+    },
+    "4492764373": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Senior Manager, ITSM ServiceNow implementation"
+    },
+    "4492811990": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "IT Configuration Manager"
     }
   },
   "matched_jobs": []
