@@ -3,7 +3,7 @@ Daily AI-powered job alert:
 1. Stage A: Cheaply fetch LinkedIn job IDs/URLs via Apify (no descriptions) since last run.
 2. Filter out already-seen job IDs stored in `seen_jobs.json`.
 3. Stage B: Fetch full descriptions ONLY for brand-new job URLs.
-4. Score each new job against `cv.txt` using Gemini 2.5 Flash + generate tailored bullets.
+4. Score each new job against `CV_TEXT` secret using Gemini 2.5 Flash + generate tailored bullets.
 5. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`),
    and email the new matches.
 """
@@ -33,9 +33,11 @@ DEFAULT_QUERIES = [
     '"Service Delivery Manager" NOT "Junior" NOT "Sales"',
 ]
 
+
 def _env(name: str, default: str) -> str:
     value = os.environ.get(name, "").strip()
     return value or default
+
 
 def _env_list(name: str, default: list[str]) -> list[str]:
     raw = os.environ.get(name, "").strip()
@@ -44,6 +46,7 @@ def _env_list(name: str, default: list[str]) -> list[str]:
     parts = raw.replace("\n", ",").split(",")
     return [p.strip() for p in parts if p.strip()]
 
+
 QUERIES = _env_list("SEARCH_QUERIES", DEFAULT_QUERIES)
 LOCATION = _env("SEARCH_LOCATION", "Malaysia")
 MAX_JOBS = int(_env("MAX_JOBS", "30"))
@@ -51,7 +54,6 @@ DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "24"))
 MIN_MATCH_SCORE = int(_env("MIN_MATCH_SCORE", "7"))
 
 STATE_FILE = Path("seen_jobs.json")
-CV_FILE = Path("cv.txt")
 DASHBOARD_FILE = Path("docs/index.html")
 # ---------------------------------------------------------------------------
 
@@ -75,11 +77,9 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
-    # Keep seen dictionary bounded to latest 1500 entries so file stays small
     seen_items = list(state.get("seen", {}).items())
     if len(seen_items) > 1500:
         state["seen"] = dict(seen_items[-1500:])
-    # Keep latest 100 matched jobs for the dashboard
     state["matched_jobs"] = state.get("matched_jobs", [])[:100]
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -90,7 +90,6 @@ def compute_hours_back(last_run_utc: str | None) -> int:
     try:
         last_dt = datetime.fromisoformat(last_run_utc)
         elapsed_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600.0
-        # Add a 1-hour overlap buffer, clamp between 2 and 72 hours
         return max(2, min(72, math.ceil(elapsed_hours + 1)))
     except Exception:
         return DEFAULT_HOURS_BACK
@@ -149,7 +148,6 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
     print(f"Stage B: Fetching full descriptions for {len(new_urls)} unseen job(s)...")
     detailed_items = _run_apify(client, new_urls, include_desc=True, max_jobs=len(new_urls))
 
-    # Map descriptions back by jobId or URL (fallback to Stage A metadata if actor returns flat list)
     detail_by_id = {}
     for d in detailed_items:
         did = str(d.get("jobId") or d.get("id") or d.get("jobUrl") or "").strip()
@@ -495,10 +493,10 @@ def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
 
 
 def main() -> None:
-    if not CV_FILE.exists():
-        raise FileNotFoundError("cv.txt not found in repository root. Please add your CV text to cv.txt.")
+    cv_text = os.environ.get("CV_TEXT", "").strip()
+    if not cv_text:
+        raise ValueError("CV_TEXT environment variable/secret is missing. Add your CV to GitHub Secrets as CV_TEXT.")
 
-    cv_text = CV_FILE.read_text(encoding="utf-8")
     state = load_state()
     seen_map = state.setdefault("seen", {})
     hours_back = compute_hours_back(state.get("last_run_utc"))
@@ -507,7 +505,6 @@ def main() -> None:
     new_candidates = fetch_new_jobs(set(seen_map.keys()), hours_back)
     new_matches = evaluate_jobs_with_ai(new_candidates, cv_text, seen_map)
 
-    # Prepend new matches to historical matched_jobs list
     existing_matches = state.get("matched_jobs", [])
     existing_ids = {m["id"] for m in existing_matches}
     combined_matches = new_matches + [m for m in existing_matches if m["id"] not in existing_ids]
