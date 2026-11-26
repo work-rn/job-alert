@@ -1,21 +1,21 @@
 """
 Daily AI-powered job alert:
-1. Stage A: Cheaply fetch LinkedIn job IDs/URLs via Apify (no descriptions) since last run.
-2. Filter out already-seen job IDs stored in `seen_jobs.json` and non-Malaysia locations.
-3. Stage B: Fetch full descriptions ONLY for brand-new Malaysian job URLs.
-4. Score each new job against `CV_TEXT` secret using Gemini 2.5 Flash + generate tailored bullets.
-5. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`),
+1. Fetch recent Malaysia LinkedIn jobs + full descriptions via Apify (`geoId=106808692`).
+2. Filter out already-evaluated job IDs stored in `seen_jobs.json` and non-Malaysia locations.
+3. Score each new job against `CV_TEXT` secret using Gemini 2.5 Flash + generate tailored bullets.
+4. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`),
    and email the new matches.
 """
 
 import json
 import math
 import os
+import re
 import smtplib
 import ssl
 from datetime import datetime, timezone
 from email.message import EmailMessage
-from html import escape
+from html import escape, unescape
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -82,7 +82,7 @@ def _env_list(name: str, default: list[str]) -> list[str]:
 
 QUERIES = _env_list("SEARCH_QUERIES", DEFAULT_QUERIES)
 LOCATION = _env("SEARCH_LOCATION", "Malaysia")
-MAX_JOBS = int(_env("MAX_JOBS", "30"))
+MAX_JOBS = int(_env("MAX_JOBS", "15"))
 DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "24"))
 MIN_MATCH_SCORE = int(_env("MIN_MATCH_SCORE", "7"))
 
@@ -139,42 +139,51 @@ def search_url(query: str, hours_back: int) -> str:
 def _is_malaysia_location(location_str: str) -> bool:
     loc = (location_str or "").strip().lower()
     if not loc:
-        return True  # Allow empty location metadata to be verified in Stage B
+        return True
     return any(term in loc for term in MALAYSIA_TERMS)
 
 
-def _run_apify(client: ApifyClient, urls: list[str], include_desc: bool, max_jobs: int) -> list[dict]:
-    run_input = {
-        "searchUrls": urls,
-        "maxJobs": max_jobs,
-        "maxConcurrency": 1,
-        "requestDelayMs": 2500,
-        "includeDescription": include_desc,
-        "proxyConfiguration": {"useApifyProxy": True},
-    }
-    run = client.actor(ACTOR_ID).call(run_input=run_input)
-    dataset_id = run["defaultDatasetId"] if isinstance(run, dict) else run.default_dataset_id
-    return client.dataset(dataset_id).list_items().items
+def _extract_description(job: dict) -> str:
+    for key in ("description", "descriptionText", "jobDescription", "text"):
+        val = job.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    html_val = job.get("descriptionHtml") or job.get("jobDescriptionHtml") or ""
+    if isinstance(html_val, str) and html_val.strip():
+        clean = re.sub(r"<[^>]+>", " ", html_val)
+        return re.sub(r"\s+", " ", unescape(clean)).strip()
+    return ""
 
 
 def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
     client = ApifyClient(os.environ["APIFY_TOKEN"])
-
-    # Stage A: Cheap metadata-only scan (no descriptions scraped)
     urls = [search_url(q, hours_back) for q in QUERIES]
-    print(f"Stage A: Scanning {len(urls)} search URL(s) in Malaysia for last {hours_back}h (metadata only)...")
-    shallow_items = _run_apify(client, urls, include_desc=False, max_jobs=MAX_JOBS)
+
+    print(f"Scanning {len(urls)} Malaysia search URL(s) for last {hours_back}h (with full descriptions)...")
+    run_input = {
+        "searchUrls": urls,
+        "maxJobs": MAX_JOBS,
+        "maxConcurrency": 1,
+        "requestDelayMs": 2500,
+        "includeDescription": True,
+        "proxyConfiguration": {"useApifyProxy": True},
+    }
+    run = client.actor(ACTOR_ID).call(run_input=run_input)
+    dataset_id = run["defaultDatasetId"] if isinstance(run, dict) else run.default_dataset_id
+    items = client.dataset(dataset_id).list_items().items
 
     new_candidates = []
     batch_seen = set()
+    skipped_seen = 0
     skipped_location = 0
 
-    for item in shallow_items:
+    for item in items:
         job_id = str(item.get("jobId") or item.get("id") or item.get("jobUrl") or "").strip()
         job_url = (item.get("jobUrl") or item.get("applyUrl") or "").strip()
-        if not job_id or not job_url or job_id in seen_ids or job_id in batch_seen:
+        if not job_id or not job_url or not item.get("title"):
             continue
-        if not item.get("title"):
+        if job_id in seen_ids or job_id in batch_seen:
+            skipped_seen += 1
             continue
 
         loc_raw = item.get("location") or ""
@@ -188,31 +197,10 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
         new_candidates.append(item)
 
     print(
-        f"Stage A found {len(shallow_items)} total -> "
-        f"skipped {skipped_location} non-Malaysia -> {len(new_candidates)} unseen Malaysia job(s)."
+        f"Apify returned {len(items)} total -> skipped {skipped_seen} already-seen, "
+        f"{skipped_location} non-Malaysia -> {len(new_candidates)} new Malaysia job(s) to evaluate."
     )
-    if not new_candidates:
-        return []
-
-    # Stage B: Scrape full descriptions ONLY for brand-new Malaysian job URLs
-    new_urls = [c["_clean_url"] for c in new_candidates]
-    print(f"Stage B: Fetching full descriptions for {len(new_urls)} unseen job(s)...")
-    detailed_items = _run_apify(client, new_urls, include_desc=True, max_jobs=len(new_urls))
-
-    detail_by_id = {}
-    for d in detailed_items:
-        did = str(d.get("jobId") or d.get("id") or d.get("jobUrl") or "").strip()
-        if did:
-            detail_by_id[did] = d
-
-    enriched = []
-    for c in new_candidates:
-        full = detail_by_id.get(c["_clean_id"]) or detail_by_id.get(c["_clean_url"]) or c
-        full["_clean_id"] = c["_clean_id"]
-        full["_clean_url"] = c["_clean_url"]
-        enriched.append(full)
-
-    return enriched
+    return new_candidates
 
 
 def evaluate_jobs_with_ai(jobs: list[dict], cv_text: str, seen_map: dict) -> list[dict]:
@@ -228,15 +216,16 @@ def evaluate_jobs_with_ai(jobs: list[dict], cv_text: str, seen_map: dict) -> lis
         title = job.get("title", "Unknown Role")
         company = job.get("company") or job.get("companyName") or "Unknown Company"
         loc = job.get("location") or LOCATION
-        desc = job.get("description") or job.get("descriptionText") or ""
+        desc = _extract_description(job)
 
-        print(f"Checking [{job_id}]: {title} @ {company} ({loc})")
+        print(f"Checking [{job_id}]: {title} @ {company} ({loc}) | desc_len={len(desc)}")
 
         if not _is_malaysia_location(loc):
             seen_map[job_id] = {"status": "skipped_location", "date": today_str, "title": title}
             continue
 
-        if not desc.strip():
+        if not desc:
+            print(f"  -> Missing description for [{job_id}]. Available fields: {list(job.keys())}")
             seen_map[job_id] = {"status": "no_description", "date": today_str, "title": title}
             continue
 
@@ -269,6 +258,7 @@ JOB DESCRIPTION:
             result = json.loads(response.text)
             score = int(result.get("score", 0))
             is_match = bool(result.get("is_match")) and score >= MIN_MATCH_SCORE
+            print(f"  -> AI Score: {score}/10 | Match: {is_match}")
 
             if is_match:
                 seen_map[job_id] = {"status": f"matched_{score}", "date": today_str, "title": title}
@@ -559,8 +549,14 @@ def main() -> None:
     seen_map = state.setdefault("seen", {})
     hours_back = compute_hours_back(state.get("last_run_utc"))
 
+    # Allow retrying any entries previously saved as "no_description"
+    evaluated_ids = {
+        jid for jid, meta in seen_map.items()
+        if isinstance(meta, dict) and meta.get("status") != "no_description"
+    }
+
     run_started_utc = datetime.now(timezone.utc).isoformat()
-    new_candidates = fetch_new_jobs(set(seen_map.keys()), hours_back)
+    new_candidates = fetch_new_jobs(evaluated_ids, hours_back)
     new_matches = evaluate_jobs_with_ai(new_candidates, cv_text, seen_map)
 
     existing_matches = state.get("matched_jobs", [])
