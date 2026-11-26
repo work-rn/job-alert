@@ -3,8 +3,8 @@ Daily AI-powered job alert:
 1. Fetch recent Malaysia LinkedIn jobs + full descriptions via Apify (`geoId=106808692`).
 2. Use Residential proxies so LinkedIn does not block detail pages (`desc_len > 0`).
 3. Score each job against `CV_TEXT` secret using Gemini 2.5 Flash (with title-only fallback if a page is blocked).
-4. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`),
-   and email the new matches.
+4. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`) with live
+   scan configuration controls, and email the new matches.
 """
 
 import json
@@ -22,7 +22,7 @@ from apify_client import ApifyClient
 from google import genai
 from pydantic import BaseModel, Field
 
-# ---- Settings -------------------------------------------------------------
+# ---- Settings (Overridable via Webpage UI, Workflow Inputs, or Repo Vars/Secrets) ----
 ACTOR_ID = "mighty_monk/linkedin-jobs-scraper"
 MALAYSIA_GEO_ID = "106808692"
 
@@ -73,16 +73,18 @@ def _env_list(name: str, default: list[str]) -> list[str]:
     raw = os.environ.get(name, "").strip()
     if not raw:
         return default
-    parts = raw.replace("\n", ",").split(",")
+    parts = re.split(r"[\r\n]+|\s*;\s*", raw)
+    if len(parts) == 1 and "," in raw and '"' not in raw:
+        parts = raw.split(",")
     return [p.strip() for p in parts if p.strip()]
 
 
 QUERIES = _env_list("SEARCH_QUERIES", DEFAULT_QUERIES)
 LOCATION = _env("SEARCH_LOCATION", "Malaysia")
 MAX_JOBS = int(_env("MAX_JOBS", "15"))
-DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "168"))  # 7 days (168 hours)
+DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "24"))
 MIN_MATCH_SCORE = int(_env("MIN_MATCH_SCORE", "7"))
-IGNORE_SEEN = _env("IGNORE_SEEN", "true").lower() in ("1", "true", "yes")
+IGNORE_SEEN = _env("IGNORE_SEEN", "false").lower() in ("1", "true", "yes")
 
 STATE_FILE = Path("seen_jobs.json")
 DASHBOARD_FILE = Path("docs/index.html")
@@ -120,14 +122,17 @@ def compute_hours_back() -> int:
 
 
 def search_url(query: str, hours_back: int) -> str:
+    geo_param = f"&geoId={MALAYSIA_GEO_ID}" if LOCATION.strip().lower() == "malaysia" else ""
     return (
         "https://www.linkedin.com/jobs/search/"
         f"?keywords={quote_plus(query)}&location={quote_plus(LOCATION)}"
-        f"&geoId={MALAYSIA_GEO_ID}&f_TPR=r{hours_back * 3600}&sortBy=DD"
+        f"{geo_param}&f_TPR=r{hours_back * 3600}&sortBy=DD"
     )
 
 
-def _is_malaysia_location(location_str: str) -> bool:
+def _is_target_location(location_str: str) -> bool:
+    if LOCATION.strip().lower() != "malaysia":
+        return True
     loc = (location_str or "").strip().lower()
     if not loc:
         return True
@@ -150,10 +155,9 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
     client = ApifyClient(os.environ["APIFY_TOKEN"])
     urls = [search_url(q, hours_back) for q in QUERIES]
 
-    # Set maxJobs to MAX_JOBS (15) across the run so Apify fetches up to 15 full job details
     print(
-        f"Scanning {len(urls)} Malaysia search URL(s) for last {hours_back}h "
-        f"(ignore_seen={IGNORE_SEEN}, max_total={MAX_JOBS}, proxy=RESIDENTIAL)..."
+        f"Scanning {len(urls)} search URL(s) in '{LOCATION}' for last {hours_back}h "
+        f"(ignore_seen={IGNORE_SEEN}, max_total={MAX_JOBS}, min_score={MIN_MATCH_SCORE}, proxy=RESIDENTIAL)..."
     )
     run_input = {
         "searchUrls": urls,
@@ -192,7 +196,7 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
             continue
 
         loc_raw = item.get("location") or ""
-        if not _is_malaysia_location(loc_raw):
+        if not _is_target_location(loc_raw):
             skipped_location += 1
             continue
 
@@ -203,7 +207,7 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
 
     print(
         f"Apify returned {len(items)} total -> skipped {skipped_seen} already-seen, "
-        f"{skipped_location} non-Malaysia -> evaluating {len(new_candidates)} Malaysia job(s) (capped at {MAX_JOBS})."
+        f"{skipped_location} outside '{LOCATION}' -> evaluating {len(new_candidates)} job(s) (capped at {MAX_JOBS})."
     )
     return new_candidates
 
@@ -225,7 +229,7 @@ def evaluate_jobs_with_ai(jobs: list[dict], cv_text: str, seen_map: dict) -> lis
 
         print(f"Checking [{job_id}]: {title} @ {company} ({loc}) | desc_len={len(desc)}")
 
-        if not _is_malaysia_location(loc):
+        if not _is_target_location(loc):
             seen_map[job_id] = {"status": "skipped_location", "date": today_str, "title": title}
             continue
 
@@ -305,7 +309,7 @@ def build_email(new_matches: list[dict], hours_back: int) -> tuple[str, str]:
 
     if not new_matches:
         body = (
-            f"<p>No Malaysia jobs scored &ge; {MIN_MATCH_SCORE}/10 in the last {hours_back} hours.</p>"
+            f"<p>No {escape(LOCATION)} jobs scored &ge; {MIN_MATCH_SCORE}/10 in the last {hours_back} hours.</p>"
             f"{pages_link}"
         )
         return subject, body
@@ -329,7 +333,7 @@ def build_email(new_matches: list[dict], hours_back: int) -> tuple[str, str]:
         )
 
     body = (
-        f"<p>Found <b>{len(new_matches)}</b> role(s) in Malaysia matching your CV (&ge; {MIN_MATCH_SCORE}/10):</p>"
+        f"<p>Found <b>{len(new_matches)}</b> role(s) in {escape(LOCATION)} matching your CV (&ge; {MIN_MATCH_SCORE}/10):</p>"
         f"{pages_link}"
         f'{"".join(cards)}'
     )
@@ -357,6 +361,7 @@ def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
     repo = os.environ.get("GITHUB_REPOSITORY", "work-rn/job-alert")
     owner, repo_name = repo.split("/", 1) if "/" in repo else ("work-rn", "job-alert")
     jobs_json = json.dumps(all_matches, ensure_ascii=False)
+    default_queries_str = "\n".join(QUERIES)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -368,16 +373,23 @@ def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
     :root {{ --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --accent: #0f172a; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px 16px; }}
     .container {{ max-width: 920px; margin: 0 auto; }}
-    header {{ display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }}
+    header {{ display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }}
     h1 {{ margin: 0; font-size: 24px; }}
     .sub {{ color: var(--muted); font-size: 13px; margin-top: 4px; }}
     .controls {{ display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }}
-    input, select, button {{ padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; }}
-    input {{ flex: 1; min-width: 220px; }}
+    input, select, button, textarea {{ padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; font-family: inherit; }}
+    input[type="text"], input[type="number"] {{ flex: 1; min-width: 140px; }}
+    textarea {{ width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }}
     button.primary {{ background: var(--accent); color: #fff; border: none; font-weight: 600; cursor: pointer; }}
     button.primary:disabled {{ opacity: 0.6; cursor: not-allowed; }}
     button.secondary {{ background: #fff; color: var(--text); cursor: pointer; }}
     #statusBanner {{ display: none; padding: 12px 14px; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-size: 14px; margin-bottom: 16px; }}
+    .settings-panel {{ display: none; background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }}
+    .settings-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 12px; }}
+    .field label {{ display: block; font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 4px; }}
+    .field input, .field select {{ width: 100%; box-sizing: border-box; }}
+    .checkbox-row {{ display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #334155; margin-top: 22px; }}
+    .checkbox-row input {{ width: 16px; height: 16px; margin: 0; }}
     .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }}
     .card-top {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }}
     .badge {{ background: #dcfce7; color: #166534; font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }}
@@ -397,11 +409,51 @@ def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
         <h1>AI Job Radar</h1>
         <div class="sub">Last updated: {escape(last_run_utc)} &middot; <span id="countLabel">0</span> saved matches</div>
       </div>
-      <div style="display:flex; gap:8px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="secondary" onclick="toggleSettings()">&#9881; Scan Settings</button>
         <button class="secondary" onclick="resetToken()" title="Update GitHub Token">API Key</button>
         <button id="runBtn" class="primary" onclick="triggerScan()">&#9654; Run Scan Now</button>
       </div>
     </header>
+
+    <div id="settingsPanel" class="settings-panel">
+      <div class="settings-grid">
+        <div class="field">
+          <label for="cfgHoursBack">Time Window (Hours Back)</label>
+          <select id="cfgHoursBack" onchange="saveConfig()">
+            <option value="24">24 Hours (Daily)</option>
+            <option value="72">72 Hours (3 Days)</option>
+            <option value="168">168 Hours (7 Days)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="cfgMaxJobs">Max Jobs to Check</label>
+          <input type="number" id="cfgMaxJobs" min="1" max="50" value="{MAX_JOBS}" onchange="saveConfig()" />
+        </div>
+        <div class="field">
+          <label for="cfgMinScore">Min AI Match Score (1-10)</label>
+          <input type="number" id="cfgMinScore" min="1" max="10" value="{MIN_MATCH_SCORE}" onchange="saveConfig()" />
+        </div>
+        <div class="field">
+          <label for="cfgLocation">Location</label>
+          <input type="text" id="cfgLocation" value="{escape(LOCATION)}" onchange="saveConfig()" />
+        </div>
+        <div class="field">
+          <label class="checkbox-row">
+            <input type="checkbox" id="cfgIgnoreSeen" onchange="saveConfig()" />
+            Re-check already seen jobs (ignore_seen)
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cfgQueries">Search Queries (one per line)</label>
+        <textarea id="cfgQueries" rows="3" onchange="saveConfig()">{escape(default_queries_str)}</textarea>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+        <span style="font-size:12px; color:#64748b;">Settings are saved in your browser and sent when you click <b>Run Scan Now</b>.</span>
+        <button class="secondary" style="padding:5px 10px; font-size:12px;" onclick="resetConfig()">Reset Defaults</button>
+      </div>
+    </div>
 
     <div id="statusBanner"></div>
 
@@ -423,6 +475,53 @@ def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
     const REPO_NAME = "{escape(repo_name)}";
     const WORKFLOW_FILE = "job_alert.yml";
     const JOBS = {jobs_json};
+
+    const SERVER_DEFAULTS = {{
+      hours_back: "{DEFAULT_HOURS_BACK}",
+      ignore_seen: {str(IGNORE_SEEN).lower()},
+      max_jobs: "{MAX_JOBS}",
+      min_match_score: "{MIN_MATCH_SCORE}",
+      search_location: {json.dumps(LOCATION)},
+      search_queries: {json.dumps(default_queries_str)}
+    }};
+
+    function loadConfig() {{
+      let saved = {{}};
+      try {{
+        saved = JSON.parse(localStorage.getItem("gh_job_radar_cfg") || "{{}}");
+      }} catch (e) {{}}
+      const cfg = Object.assign({{}}, SERVER_DEFAULTS, saved);
+      document.getElementById("cfgHoursBack").value = String(cfg.hours_back);
+      document.getElementById("cfgIgnoreSeen").checked = Boolean(cfg.ignore_seen);
+      document.getElementById("cfgMaxJobs").value = String(cfg.max_jobs);
+      document.getElementById("cfgMinScore").value = String(cfg.min_match_score);
+      document.getElementById("cfgLocation").value = String(cfg.search_location);
+      document.getElementById("cfgQueries").value = String(cfg.search_queries);
+      return cfg;
+    }}
+
+    function saveConfig() {{
+      const cfg = {{
+        hours_back: document.getElementById("cfgHoursBack").value,
+        ignore_seen: document.getElementById("cfgIgnoreSeen").checked,
+        max_jobs: document.getElementById("cfgMaxJobs").value,
+        min_match_score: document.getElementById("cfgMinScore").value,
+        search_location: document.getElementById("cfgLocation").value.trim() || "Malaysia",
+        search_queries: document.getElementById("cfgQueries").value.trim()
+      }};
+      localStorage.setItem("gh_job_radar_cfg", JSON.stringify(cfg));
+      return cfg;
+    }}
+
+    function resetConfig() {{
+      localStorage.removeItem("gh_job_radar_cfg");
+      loadConfig();
+    }}
+
+    function toggleSettings() {{
+      const panel = document.getElementById("settingsPanel");
+      panel.style.display = panel.style.display === "block" ? "none" : "block";
+    }}
 
     function escapeHtml(str) {{
       return String(str || "").replace(/[&<>"']/g, m => ({{
@@ -489,10 +588,11 @@ def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
     async function triggerScan() {{
       const token = getToken();
       if (!token) return;
+      const cfg = saveConfig();
 
       const btn = document.getElementById("runBtn");
       btn.disabled = true;
-      setBanner("Triggering GitHub Actions workflow...");
+      setBanner(`Triggering scan (${{cfg.hours_back}}h window, max ${{cfg.max_jobs}} jobs, ignore_seen=${{cfg.ignore_seen}})...`);
 
       try {{
         const dispatchRes = await fetch(
@@ -504,12 +604,22 @@ def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
               "Accept": "application/vnd.github+json",
               "Content-Type": "application/json"
             }},
-            body: JSON.stringify({{ ref: "main" }})
+            body: JSON.stringify({{
+              ref: "main",
+              inputs: {{
+                hours_back: String(cfg.hours_back),
+                ignore_seen: String(cfg.ignore_seen),
+                max_jobs: String(cfg.max_jobs),
+                min_match_score: String(cfg.min_match_score),
+                search_location: String(cfg.search_location),
+                search_queries: String(cfg.search_queries)
+              }}
+            }})
           }}
         );
 
         if (!dispatchRes.ok) {{
-          throw new Error(`GitHub API error (${{dispatchRes.status}}). Check repo name and PAT permissions.`);
+          throw new Error(`GitHub API error (${{dispatchRes.status}}). Check repo name, PAT permissions, and workflow inputs.`);
         }}
 
         setBanner("Workflow queued! Polling status every 10s (usually takes 60-90s)...");
@@ -541,6 +651,7 @@ def generate_dashboard(all_matches: list[dict], last_run_utc: str) -> None:
       }}
     }}
 
+    loadConfig();
     renderJobs();
   </script>
 </body>
