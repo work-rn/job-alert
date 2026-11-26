@@ -1,14 +1,13 @@
 """
 Daily AI-powered job alert:
 1. Fetch recent Malaysia LinkedIn jobs + full descriptions via Apify (`geoId=106808692`).
-2. Filter out already-evaluated job IDs stored in `seen_jobs.json` and non-Malaysia locations.
-3. Score each new job against `CV_TEXT` secret using Gemini 2.5 Flash + generate tailored bullets.
+2. Filter out non-Malaysia locations and cap total evaluated jobs at 15 to protect Apify usage.
+3. Score each job against `CV_TEXT` secret using Gemini 2.5 Flash + generate tailored bullets.
 4. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`),
    and email the new matches.
 """
 
 import json
-import math
 import os
 import re
 import smtplib
@@ -60,10 +59,8 @@ MALAYSIA_TERMS = (
 )
 
 DEFAULT_QUERIES = [
-    '"AI" AND ("Program Manager" OR "Project Manager" OR "Transformation" OR "Adoption")',
-    '"IT Service" AND ("Manager" OR "Lead" OR "Owner") NOT "Junior" NOT "Intern"',
-    '"Asset" AND ("Manager" OR "Owner" OR "Lead") AND ("IT" OR "Discovery" OR "Configuration")',
-    '"Service Delivery Manager" NOT "Junior" NOT "Sales"',
+    '("IT Service" OR "Service Delivery" OR "IT Operations" OR "Incident Manager" OR "Problem Manager" OR "Change Manager") AND ("Manager" OR "Lead" OR "Owner") NOT "Junior" NOT "Intern"',
+    '("CMDB" OR "ITAM" OR "Asset Management" OR "Configuration Manager" OR "BMC Discovery" OR "ServiceNow" OR "AI" OR "GenAI" OR "Digital Transformation") AND ("Manager" OR "Lead" OR "Owner" OR "Delivery") NOT "Junior"',
 ]
 
 
@@ -83,8 +80,9 @@ def _env_list(name: str, default: list[str]) -> list[str]:
 QUERIES = _env_list("SEARCH_QUERIES", DEFAULT_QUERIES)
 LOCATION = _env("SEARCH_LOCATION", "Malaysia")
 MAX_JOBS = int(_env("MAX_JOBS", "15"))
-DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "24"))
+DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "168"))  # 7 days (168 hours)
 MIN_MATCH_SCORE = int(_env("MIN_MATCH_SCORE", "7"))
+IGNORE_SEEN = _env("IGNORE_SEEN", "true").lower() in ("1", "true", "yes")
 
 STATE_FILE = Path("seen_jobs.json")
 DASHBOARD_FILE = Path("docs/index.html")
@@ -117,15 +115,8 @@ def save_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def compute_hours_back(last_run_utc: str | None) -> int:
-    if not last_run_utc:
-        return DEFAULT_HOURS_BACK
-    try:
-        last_dt = datetime.fromisoformat(last_run_utc)
-        elapsed_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600.0
-        return max(2, min(72, math.ceil(elapsed_hours + 1)))
-    except Exception:
-        return DEFAULT_HOURS_BACK
+def compute_hours_back() -> int:
+    return DEFAULT_HOURS_BACK
 
 
 def search_url(query: str, hours_back: int) -> str:
@@ -159,10 +150,16 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
     client = ApifyClient(os.environ["APIFY_TOKEN"])
     urls = [search_url(q, hours_back) for q in QUERIES]
 
-    print(f"Scanning {len(urls)} Malaysia search URL(s) for last {hours_back}h (with full descriptions)...")
+    # Cap per-query fetch so total Apify dataset stays around MAX_JOBS (15)
+    per_query_cap = max(5, (MAX_JOBS // len(urls)) + 1)
+
+    print(
+        f"Scanning {len(urls)} Malaysia search URL(s) for last {hours_back}h "
+        f"(ignore_seen={IGNORE_SEEN}, max_total={MAX_JOBS}, per_query_cap={per_query_cap})..."
+    )
     run_input = {
         "searchUrls": urls,
-        "maxJobs": MAX_JOBS,
+        "maxJobs": per_query_cap,
         "maxConcurrency": 1,
         "requestDelayMs": 2500,
         "includeDescription": True,
@@ -178,11 +175,16 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
     skipped_location = 0
 
     for item in items:
+        if len(new_candidates) >= MAX_JOBS:
+            break
+
         job_id = str(item.get("jobId") or item.get("id") or item.get("jobUrl") or "").strip()
         job_url = (item.get("jobUrl") or item.get("applyUrl") or "").strip()
         if not job_id or not job_url or not item.get("title"):
             continue
-        if job_id in seen_ids or job_id in batch_seen:
+        if job_id in batch_seen:
+            continue
+        if not IGNORE_SEEN and job_id in seen_ids:
             skipped_seen += 1
             continue
 
@@ -198,7 +200,7 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
 
     print(
         f"Apify returned {len(items)} total -> skipped {skipped_seen} already-seen, "
-        f"{skipped_location} non-Malaysia -> {len(new_candidates)} new Malaysia job(s) to evaluate."
+        f"{skipped_location} non-Malaysia -> evaluating {len(new_candidates)} Malaysia job(s) (capped at {MAX_JOBS})."
     )
     return new_candidates
 
@@ -296,7 +298,7 @@ def build_email(new_matches: list[dict], hours_back: int) -> tuple[str, str]:
 
     if not new_matches:
         body = (
-            f"<p>No new Malaysia jobs scored &ge; {MIN_MATCH_SCORE}/10 in the last {hours_back} hours.</p>"
+            f"<p>No Malaysia jobs scored &ge; {MIN_MATCH_SCORE}/10 in the last {hours_back} hours.</p>"
             f"{pages_link}"
         )
         return subject, body
@@ -547,21 +549,15 @@ def main() -> None:
 
     state = load_state()
     seen_map = state.setdefault("seen", {})
-    hours_back = compute_hours_back(state.get("last_run_utc"))
-
-    # Allow retrying any entries previously saved as "no_description"
-    evaluated_ids = {
-        jid for jid, meta in seen_map.items()
-        if isinstance(meta, dict) and meta.get("status") != "no_description"
-    }
+    hours_back = compute_hours_back()
 
     run_started_utc = datetime.now(timezone.utc).isoformat()
-    new_candidates = fetch_new_jobs(evaluated_ids, hours_back)
+    new_candidates = fetch_new_jobs(set(seen_map.keys()), hours_back)
     new_matches = evaluate_jobs_with_ai(new_candidates, cv_text, seen_map)
 
+    new_ids = {m["id"] for m in new_matches}
     existing_matches = state.get("matched_jobs", [])
-    existing_ids = {m["id"] for m in existing_matches}
-    combined_matches = new_matches + [m for m in existing_matches if m["id"] not in existing_ids]
+    combined_matches = new_matches + [m for m in existing_matches if m["id"] not in new_ids]
 
     state["last_run_utc"] = run_started_utc
     state["matched_jobs"] = combined_matches
@@ -570,7 +566,7 @@ def main() -> None:
     generate_dashboard(combined_matches, run_started_utc)
     subject, body = build_email(new_matches, hours_back)
     send_email(subject, body)
-    print(f"Done. New candidates checked: {len(new_candidates)} | New AI matches: {len(new_matches)}")
+    print(f"Done. Candidates checked: {len(new_candidates)} | AI matches: {len(new_matches)}")
 
 
 if __name__ == "__main__":
