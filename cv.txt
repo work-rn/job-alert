@@ -1,0 +1,18 @@
+•Own the global IT asset discovery using BMC Discovery for ~700,000 assets across 8 business units on global region.
+•Leading L2 team and sustaining 98%+ SLA compliance on Incident Management towards resolution time over the full year.
+•Act as a Subject Matter Expert to business users and provide advice on asset lifecycle, baselines and relation between Asset Discovery and CMDB.
+•Managing the schedule data reload and act as primary contact when issues or escalation raised.
+•Implemented automated data quality monitoring with predefined thresholds to identify abnormal data volumes, inconsistencies and potential data integrity issues.
+•Established real-time ticket monitoring against SLA targets, enabling early escalation of at-risk incidents and cutting SLA breaches by 93% year-over-year (15 to 1).
+•Replaced a daily 30-minute manual source check across 200+ jobs with Zabbix and Grafana alerting, saving ~10 hours a month and catching failures before the business escalation.
+•Reduced dependence on L3 support by building SOPs, a knowledge base, and a problem management process, and cross-training L2 engineers on the full service.
+•Initiated a structured daily morning service check across critical jobs and interfaces, detecting and resolving issues before business impact or escalation.
+•Collaborated with ServiceNow to integrate asset discovery data into the CMDB, improving configuration data accuracy and service visibility.
+•Closing a knowledge gap behind breaches by updating the process and SOP; reconciled ~40 new user accounts a month against approved requests across a 1,400-user base to keep provisioning audit-ready for the annual external audit.
+•Reviewed and approved monthly patches/security patching plans, rescheduling any patch that clashed with internal processes and notifying users for any risk.
+
+Technical Expertise:
+Cloud & Platform Technologies: Microsoft Azure, AWS, Docker, Kubernetes, Enterprise Linux (RHEL), Windows Server
+Automation & Service Integration: PowerShell, Python, Bash, REST API Integration, Power Automate, CI/CD Automation
+Data & Database Technologies: Oracle, Microsoft SQL Server, PostgreSQL, SQL, Teradata
+Enterprise Collaboration & Tools: Jira, Confluence, Azure DevOps, SharePoint
