@@ -88,7 +88,7 @@ DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "24"))
 MIN_MATCH_SCORE = int(_env("MIN_MATCH_SCORE", "7"))
 IGNORE_SEEN = _env("IGNORE_SEEN", "false").lower() in ("1", "true", "yes")
 GEMINI_MODEL = _env("GEMINI_MODEL", "gemini-3.8-flash")
-FALLBACK_MODELS = ["gemini-3.8-flash", "gemini-3.0-flash", "gemini-2.5-flash-lite"]
+FALLBACK_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
 
 STATE_FILE = Path("seen_jobs.json")
 DASHBOARD_FILE = Path("docs/index.html")
@@ -221,8 +221,26 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
     return new_candidates
 
 
+def _discover_available_models(ai_client: genai.Client) -> list[str]:
+    discovered = []
+    try:
+        for m in ai_client.models.list():
+            name = getattr(m, "name", "") or ""
+            short = name.replace("models/", "")
+            methods = getattr(m, "supported_generation_methods", None) or getattr(m, "supported_actions", None) or []
+            if "gemini" in short and ("flash" in short or "pro" in short) and "embed" not in short and "image" not in short and "audio" not in short:
+                if not methods or "generateContent" in methods:
+                    discovered.append(short)
+    except Exception:
+        pass
+    return discovered
+
+
 def _call_gemini_with_retry(ai_client: genai.Client, prompt: str) -> dict:
     models_to_try = [GEMINI_MODEL] + [m for m in FALLBACK_MODELS if m != GEMINI_MODEL]
+    for extra in _discover_available_models(ai_client):
+        if extra not in models_to_try:
+            models_to_try.append(extra)
     last_err = None
 
     for model_name in models_to_try:
