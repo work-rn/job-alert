@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Job Radar Dashboard</title>
+  <style>
+    :root { --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --accent: #0f172a; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px 16px; }
+    .container { max-width: 920px; margin: 0 auto; }
+    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }
+    h1 { margin: 0; font-size: 24px; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+    input, select, button { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; }
+    input { flex: 1; min-width: 220px; }
+    button.primary { background: var(--accent); color: #fff; border: none; font-weight: 600; cursor: pointer; }
+    button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    button.secondary { background: #fff; color: var(--text); cursor: pointer; }
+    #statusBanner { display: none; padding: 12px 14px; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-size: 14px; margin-bottom: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+    .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .badge { background: #dcfce7; color: #166534; font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+    .badge.mid { background: #fef9c3; color: #854d0e; }
+    .title { font-size: 18px; font-weight: 700; color: #0369a1; text-decoration: none; }
+    .meta { color: var(--muted); font-size: 13px; margin: 4px 0 10px; }
+    .reason { font-size: 14px; line-height: 1.5; margin: 0 0 10px; }
+    details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #334155; }
+    details ul { margin: 8px 0 0 18px; font-size: 13px; color: #334155; line-height: 1.5; }
+    .apply-btn { display: inline-block; margin-top: 12px; padding: 7px 14px; background: #0369a1; color: #fff; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>AI Job Radar</h1>
+        <div class="sub">Last updated: 2026-11-26T15:41:31.790528+00:00 &middot; <span id="countLabel">0</span> saved matches</div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="secondary" onclick="resetToken()" title="Update GitHub Token">API Key</button>
+        <button id="runBtn" class="primary" onclick="triggerScan()">&#9654; Run Scan Now</button>
+      </div>
+    </header>
+
+    <div id="statusBanner"></div>
+
+    <div class="controls">
+      <input type="text" id="searchInput" placeholder="Filter by title, company, or keyword..." oninput="renderJobs()" />
+      <select id="scoreFilter" onchange="renderJobs()">
+        <option value="0">All Saved Scores</option>
+        <option value="9">9+ / 10 Only</option>
+        <option value="8">8+ / 10 Only</option>
+        <option value="7">7+ / 10 Only</option>
+      </select>
+    </div>
+
+    <div id="jobList"></div>
+  </div>
+
+  <script>
+    const REPO_OWNER = "work-rn";
+    const REPO_NAME = "job-alert";
+    const WORKFLOW_FILE = "job_alert.yml";
+    const JOBS = [];
+
+    function escapeHtml(str) {
+      return String(str || "").replace(/[&<>"']/g, m => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[m]));
+    }
+
+    function renderJobs() {
+      const q = document.getElementById("searchInput").value.toLowerCase();
+      const minScore = parseInt(document.getElementById("scoreFilter").value, 10);
+      const filtered = JOBS.filter(j => {
+        const hay = `${j.title} ${j.company} ${j.location} ${j.reason}`.toLowerCase();
+        return j.score >= minScore && hay.includes(q);
+      });
+
+      document.getElementById("countLabel").textContent = filtered.length;
+      const list = document.getElementById("jobList");
+      if (!filtered.length) {
+        list.innerHTML = '<div class="card">No matching jobs found for the selected filter.</div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(j => `
+        <div class="card">
+          <div class="card-top">
+            <div>
+              <a class="title" href="${escapeHtml(j.url)}" target="_blank" rel="noopener">${escapeHtml(j.title)}</a>
+              <div class="meta">${escapeHtml(j.company)} &middot; ${escapeHtml(j.location)} &middot; Found ${escapeHtml(j.found_date)}</div>
+            </div>
+            <span class="badge ${j.score < 8 ? 'mid' : ''}">${j.score}/10 Match</span>
+          </div>
+          <p class="reason"><strong>AI Fit Note:</strong> ${escapeHtml(j.reason)}</p>
+          <details>
+            <summary>View 3 Tailored CV Bullet Points</summary>
+            <ul>${(j.bullets || []).map(b => `<li>${escapeHtml(b)}</li>`).join("")}</ul>
+          </details>
+          <a class="apply-btn" href="${escapeHtml(j.url)}" target="_blank" rel="noopener">View &amp; Apply on LinkedIn &rarr;</a>
+        </div>
+      `).join("");
+    }
+
+    function getToken() {
+      let token = localStorage.getItem("gh_job_radar_pat");
+      if (!token) {
+        token = prompt("Enter your Fine-Grained GitHub PAT (stored only in this browser's localStorage):");
+        if (token && token.trim()) {
+          localStorage.setItem("gh_job_radar_pat", token.trim());
+        }
+      }
+      return token ? token.trim() : null;
+    }
+
+    function resetToken() {
+      localStorage.removeItem("gh_job_radar_pat");
+      alert("Saved GitHub token cleared from this browser.");
+    }
+
+    function setBanner(msg) {
+      const el = document.getElementById("statusBanner");
+      el.style.display = "block";
+      el.textContent = msg;
+    }
+
+    async function triggerScan() {
+      const token = getToken();
+      if (!token) return;
+
+      const btn = document.getElementById("runBtn");
+      btn.disabled = true;
+      setBanner("Triggering GitHub Actions workflow...");
+
+      try {
+        const dispatchRes = await fetch(
+          `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ ref: "main" })
+          }
+        );
+
+        if (!dispatchRes.ok) {
+          throw new Error(`GitHub API error (${dispatchRes.status}). Check repo name and PAT permissions.`);
+        }
+
+        setBanner("Workflow queued! Polling status every 10s (usually takes 60-90s)...");
+        await new Promise(r => setTimeout(r, 6000));
+
+        for (let i = 0; i < 24; i++) {
+          const runsRes = await fetch(
+            `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=1`,
+            { headers: { "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json" } }
+          );
+          const data = await runsRes.json();
+          const latest = data.workflow_runs && data.workflow_runs[0];
+          if (latest) {
+            setBanner(`Workflow status: ${latest.status} ${latest.conclusion ? '(' + latest.conclusion + ')' : ''}...`);
+            if (latest.status === "completed") {
+              setBanner("Scan complete! Waiting 18s for GitHub Pages to publish, then refreshing...");
+              await new Promise(r => setTimeout(r, 18000));
+              location.reload();
+              return;
+            }
+          }
+          await new Promise(r => setTimeout(r, 10000));
+        }
+        setBanner("Workflow is still running in background. Refresh this page shortly.");
+      } catch (err) {
+        setBanner("Error: " + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    renderJobs();
+  </script>
+</body>
+</html>

@@ -1,5 +1,156 @@
 {
-  "last_run_utc": null,
-  "seen": {},
+  "last_run_utc": "2026-11-26T15:41:31.790528+00:00",
+  "seen": {
+    "4495000653": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Deskside Support Lead / IT Onsite Support Lead"
+    },
+    "4495017397": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Account Delivery Manager"
+    },
+    "4495015555": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Section Head (Core Banking & Cards)"
+    },
+    "4395263096": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Manager, Restaurant Technology Implementation"
+    },
+    "4469400900": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "IT Infrastructure Manager"
+    },
+    "4495014700": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Country Infrastructure Regional Lead (Indonesia/Malaysia)"
+    },
+    "4495285448": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Critical Services Manager"
+    },
+    "4487526346": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Service Controller, APAC"
+    },
+    "4459574874": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "T&T Manager - AI & Data - Japanese Client Services - SEA"
+    },
+    "4486569747": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "11 - Senior Manager, IT Solutions (SAP)"
+    },
+    "4495282010": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Executive Director, Data & AI Enablement, APAC"
+    },
+    "4494994013": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Digital Manager"
+    },
+    "4425612752": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "AI Client Experience Manager"
+    },
+    "4469394573": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Transition & Transformation Manager Finance"
+    },
+    "4494988808": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Technical Program Manager"
+    },
+    "4494998117": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "VP, Project Manager"
+    },
+    "4495502283": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Senior Project Manager"
+    },
+    "4493635432": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Executive Office - Transformation Manager"
+    },
+    "4494996007": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Technical Delivery Manager - Insurance Domain"
+    },
+    "4495273634": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Lead IAM"
+    },
+    "4495004096": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Senior Manager, Settlements"
+    },
+    "4486590033": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Senior Specialist iSeries & System Infrastructure"
+    },
+    "4334102808": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Technical Delivery Manager (Informatica)"
+    },
+    "4495005502": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Unified Endpoint Manager ( Intune)"
+    },
+    "4478105504": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "DRSC SEA Risk and Brand Protection - SEA Risk Operations Manager"
+    },
+    "4495268803": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Consultant - Professional Services"
+    },
+    "4484826782": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Lead Analyst, IT Development"
+    },
+    "4469136261": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Third Party Cyber Risk & Portfolio Manager"
+    },
+    "4494990102": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "EUC Device Services Specialist"
+    },
+    "4494988833": {
+      "status": "no_description",
+      "date": "2026-11-26",
+      "title": "Discretionary Portfolio Management (DPM) Lead, CIO Office"
+    }
+  },
   "matched_jobs": []
 }
