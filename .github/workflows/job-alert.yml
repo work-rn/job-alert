@@ -1,1 +1,46 @@
+name: Daily job alert
 
+on:
+  schedule:
+    # 00:00 UTC = 08:00 Malaysia time (GitHub cron uses UTC)
+    - cron: "0 0 * * *"
+  workflow_dispatch:  # "Run workflow" button, with optional one-off overrides
+    inputs:
+      queries:
+        description: "Job titles to search (comma separated). Leave blank to use saved settings."
+        required: false
+        default: ""
+      location:
+        description: "Location. Leave blank to use saved settings."
+        required: false
+        default: ""
+      hours_back:
+        description: "Only jobs posted within this many hours. Leave blank for saved setting."
+        required: false
+        default: ""
+
+jobs:
+  send-alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run job alert
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          # Manual-run form value wins; otherwise the saved Variable; otherwise script default
+          SEARCH_QUERIES: ${{ inputs.queries || vars.SEARCH_QUERIES }}
+          SEARCH_LOCATION: ${{ inputs.location || vars.SEARCH_LOCATION }}
+          HOURS_BACK: ${{ inputs.hours_back || vars.HOURS_BACK }}
+          MAX_JOBS: ${{ vars.MAX_JOBS }}
+        run: python job_alert.py
