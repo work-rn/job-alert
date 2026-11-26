@@ -281,7 +281,7 @@ def build_email(new_matches: list[dict], hours_back: int) -> tuple[str, str]:
 
 def send_email(subject: str, html_body: str) -> None:
     sender = os.environ["GMAIL_ADDRESS"]
-    recipient = os.environ.get("EMAIL_TO", sender)
+    recipient = os.environ.get("EMAIL_TO", "").strip() or sender
 
     msg = EmailMessage()
     msg["Subject"] = subject
