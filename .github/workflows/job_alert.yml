@@ -1,0 +1,51 @@
+name: Daily AI Job Alert
+
+on:
+  schedule:
+    # Runs daily at 00:00 UTC (08:00 AM Malaysia Time)
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      hours_back:
+        description: "Override hours back (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  scrape-and-match:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run AI job scraper & dashboard generator
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CV_TEXT: ${{ secrets.CV_TEXT }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          HOURS_BACK: ${{ github.event.inputs.hours_back }}
+        run: python job_alert.py
+
+      - name: Commit updated state & GitHub Pages dashboard
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add seen_jobs.json docs/index.html
+          git diff --staged --quiet || git commit -m "chore: update job radar results [skip ci]"
+          git push
