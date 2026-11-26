@@ -76,7 +76,13 @@ def fetch_jobs() -> list[dict]:
         "proxyConfiguration": {"useApifyProxy": True},
     }
     run = client.actor(ACTOR_ID).call(run_input=run_input)
-    items = client.dataset(run["defaultDatasetId"]).list_items().items
+    # Newer apify-client versions return an object, older ones a dict
+    dataset_id = (
+        run["defaultDatasetId"]
+        if isinstance(run, dict)
+        else run.default_dataset_id
+    )
+    items = client.dataset(dataset_id).list_items().items
 
     # De-duplicate (the same job can match several queries)
     seen, jobs = set(), []
