@@ -2,7 +2,8 @@
 Daily AI-powered job alert:
 1. Fetch recent Malaysia LinkedIn jobs + full descriptions via Apify (`geoId=106808692`).
 2. Use Residential proxies so LinkedIn does not block detail pages (`desc_len > 0`).
-3. Score each job against `CV_TEXT` secret using Gemini 2.5 Flash (with title-only fallback if a page is blocked).
+3. Batch-evaluate all candidates in ONE Gemini API call (stays well under 5 RPM Free Tier quota)
+   with automatic retry & fallback on 503/429 errors.
 4. Update `seen_jobs.json`, generate an interactive GitHub Pages dashboard (`docs/index.html`) with live
    scan configuration controls, and email the new matches.
 """
@@ -12,6 +13,7 @@ import os
 import re
 import smtplib
 import ssl
+import time
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from html import escape, unescape
@@ -86,19 +88,25 @@ DEFAULT_HOURS_BACK = int(_env("HOURS_BACK", "24"))
 MIN_MATCH_SCORE = int(_env("MIN_MATCH_SCORE", "7"))
 IGNORE_SEEN = _env("IGNORE_SEEN", "false").lower() in ("1", "true", "yes")
 GEMINI_MODEL = _env("GEMINI_MODEL", "gemini-3.8-flash")
+FALLBACK_MODELS = ["gemini-3.8-flash", "gemini-3.0-flash", "gemini-2.5-flash-lite"]
 
 STATE_FILE = Path("seen_jobs.json")
 DASHBOARD_FILE = Path("docs/index.html")
 # ---------------------------------------------------------------------------
 
 
-class JobEvaluation(BaseModel):
+class SingleJobEvaluation(BaseModel):
+    job_id: str = Field(description="Exact job_id string from the input job list")
     score: int = Field(description="Match score from 1 to 10 against candidate CV")
     is_match: bool = Field(description="True if score >= MIN_MATCH_SCORE and seniority/domain fit")
     reason: str = Field(description="1-2 concise sentences on why this fits or key gaps")
     tailored_bullets: list[str] = Field(
-        description="3 tailored resume bullet points aligned to this job description"
+        description="3 tailored resume bullet points aligned to this job (empty list if score < MIN_MATCH_SCORE)"
     )
+
+
+class BatchJobEvaluation(BaseModel):
+    evaluations: list[SingleJobEvaluation]
 
 
 def load_state() -> dict:
@@ -213,14 +221,46 @@ def fetch_new_jobs(seen_ids: set[str], hours_back: int) -> list[dict]:
     return new_candidates
 
 
+def _call_gemini_with_retry(ai_client: genai.Client, prompt: str) -> dict:
+    models_to_try = [GEMINI_MODEL] + [m for m in FALLBACK_MODELS if m != GEMINI_MODEL]
+    last_err = None
+
+    for model_name in models_to_try:
+        for attempt in range(1, 4):
+            try:
+                print(f"Calling Gemini ({model_name}, attempt {attempt}/3)...")
+                response = ai_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={
+                        "response_mime_type": "application/json",
+                        "response_schema": BatchJobEvaluation,
+                        "temperature": 0.2,
+                    },
+                )
+                return json.loads(response.text)
+            except Exception as exc:
+                last_err = exc
+                err_str = str(exc)
+                print(f"  -> {model_name} attempt {attempt} failed: {err_str[:220]}")
+                if "404" in err_str:
+                    break  # Try next model immediately
+                wait_sec = 12 * attempt
+                print(f"  -> Waiting {wait_sec}s before retry...")
+                time.sleep(wait_sec)
+
+    raise RuntimeError(f"All Gemini models failed after retries. Last error: {last_err}")
+
+
 def evaluate_jobs_with_ai(jobs: list[dict], cv_text: str, seen_map: dict) -> list[dict]:
     if not jobs:
         return []
 
     ai_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    matched = []
 
+    job_map = {}
+    job_blocks = []
     for job in jobs:
         job_id = job["_clean_id"]
         title = job.get("title", "Unknown Role")
@@ -228,70 +268,75 @@ def evaluate_jobs_with_ai(jobs: list[dict], cv_text: str, seen_map: dict) -> lis
         loc = job.get("location") or LOCATION
         desc = _extract_description(job)
 
-        print(f"Checking [{job_id}]: {title} @ {company} ({loc}) | desc_len={len(desc)}")
-
-        if not _is_target_location(loc):
-            seen_map[job_id] = {"status": "skipped_location", "date": today_str, "title": title}
-            continue
-
-        if desc:
-            desc_section = f"JOB DESCRIPTION:\n{desc[:7000]}"
-            fallback_note = ""
-        else:
-            desc_section = (
-                "JOB DESCRIPTION:\n[Unavailable due to LinkedIn anti-bot wall. "
-                "Evaluate strictly based on Job Title, Company, Seniority, and Location alignment with the candidate's CV.]"
-            )
-            fallback_note = " (Title-based evaluation — click link to view full description on LinkedIn)"
-
-        prompt = f"""
-Evaluate how well this candidate matches the job posting below.
-Be realistic and selective:
-- Score >= {MIN_MATCH_SCORE} ONLY if the candidate's seniority, leadership scope, and core technical/domain experience genuinely align.
-- Penalize junior roles, pure sales/pre-sales quotas, or unrelated domain stacks (e.g., general retail banking division manager or pure software engineering).
-- Write 3 tailored, metric-oriented resume bullet points that position the candidate's real background for this specific role.
-
-CANDIDATE CV:
-{cv_text[:8000]}
-
-JOB TITLE: {title}
+        print(f"Queued [{job_id}]: {title} @ {company} ({loc}) | desc_len={len(desc)}")
+        job_map[job_id] = {
+            "job": job,
+            "title": title,
+            "company": company,
+            "loc": loc,
+            "has_desc": bool(desc),
+        }
+        desc_text = desc[:1500] if desc else "[Unavailable due to LinkedIn anti-bot wall — evaluate strictly from Job Title, Company, Seniority, and Location.]"
+        job_blocks.append(
+            f"---
+JOB_ID: {job_id}
+TITLE: {title}
 COMPANY: {company}
 LOCATION: {loc}
-{desc_section}
-"""
-        try:
-            response = ai_client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": JobEvaluation,
-                    "temperature": 0.2,
-                },
-            )
-            result = json.loads(response.text)
-            score = int(result.get("score", 0))
-            is_match = bool(result.get("is_match")) and score >= MIN_MATCH_SCORE
-            print(f"  -> AI Score: {score}/10 | Match: {is_match}")
+DESCRIPTION: {desc_text}"
+        )
 
-            if is_match:
-                seen_map[job_id] = {"status": f"matched_{score}", "date": today_str, "title": title}
-                matched.append({
-                    "id": job_id,
-                    "title": title,
-                    "company": company,
-                    "location": loc,
-                    "posted_at": str(job.get("postedAt") or today_str),
-                    "found_date": today_str,
-                    "url": job["_clean_url"],
-                    "score": score,
-                    "reason": (result.get("reason", "") + fallback_note).strip(),
-                    "bullets": result.get("tailored_bullets", []),
-                })
-            else:
-                seen_map[job_id] = {"status": f"rejected_{score}", "date": today_str, "title": title}
-        except Exception as exc:
-            print(f"AI evaluation failed for '{title}': {exc}")
+    prompt = f"""
+Evaluate how well this candidate matches EACH of the {len(job_blocks)} job postings below.
+Return an evaluation entry for EVERY single JOB_ID provided.
+
+Scoring rules (be realistic and selective):
+- Score >= {MIN_MATCH_SCORE} ONLY if the candidate's seniority, leadership scope, and core technical/domain experience genuinely align (e.g., ITSM, Service Delivery, Incident/Problem/Change Management, CMDB/Asset Discovery, ServiceNow, IT Operations, AI/Automation Service Excellence).
+- Score <= 5 for junior roles, pure sales/pre-sales quotas, language-specialist roles requiring Japanese/Korean fluency not in the CV, or unrelated domains (e.g., retail banking branch/division manager).
+- Only generate 3 tailored, metric-oriented resume bullet points for jobs scoring >= {MIN_MATCH_SCORE} (use [] for lower-scoring jobs to keep output concise).
+
+CANDIDATE CV:
+{cv_text[:7000]}
+
+JOB LISTINGS TO EVALUATE:
+{chr(10).join(job_blocks)}
+"""
+
+    batch_result = _call_gemini_with_retry(ai_client, prompt)
+    evaluations = batch_result.get("evaluations", [])
+    matched = []
+
+    for ev in evaluations:
+        job_id = str(ev.get("job_id", "")).strip()
+        if job_id not in job_map:
+            continue
+        meta = job_map[job_id]
+        job = meta["job"]
+        title = meta["title"]
+        company = meta["company"]
+        loc = meta["loc"]
+        fallback_note = "" if meta["has_desc"] else " (Title-based evaluation — click link to view full description on LinkedIn)"
+
+        score = int(ev.get("score", 0))
+        is_match = bool(ev.get("is_match")) and score >= MIN_MATCH_SCORE
+        print(f"  [{job_id}] {title} @ {company} -> AI Score: {score}/10 | Match: {is_match}")
+
+        if is_match:
+            seen_map[job_id] = {"status": f"matched_{score}", "date": today_str, "title": title}
+            matched.append({
+                "id": job_id,
+                "title": title,
+                "company": company,
+                "location": loc,
+                "posted_at": str(job.get("postedAt") or today_str),
+                "found_date": today_str,
+                "url": job["_clean_url"],
+                "score": score,
+                "reason": (ev.get("reason", "") + fallback_note).strip(),
+                "bullets": ev.get("tailored_bullets", []),
+            })
+        else:
+            seen_map[job_id] = {"status": f"rejected_{score}", "date": today_str, "title": title}
 
     matched.sort(key=lambda x: x["score"], reverse=True)
     return matched
