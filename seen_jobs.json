@@ -1,5 +1,5 @@
 {
-  "last_run_utc": "2026-11-26T16:46:12.251968+00:00",
+  "last_run_utc": "2026-11-27T01:11:47.131601+00:00",
   "seen": {
     "4495000653": {
       "status": "no_description",
@@ -270,9 +270,55 @@
       "status": "matched_8",
       "date": "2026-11-26",
       "title": "Service Delivery Manager"
+    },
+    "4493492615": {
+      "status": "rejected_2",
+      "date": "2026-11-27",
+      "title": "AI Architect"
+    },
+    "4495282511": {
+      "status": "rejected_3",
+      "date": "2026-11-27",
+      "title": "Head, People Tech & Analytics"
+    },
+    "4495027205": {
+      "status": "rejected_2",
+      "date": "2026-11-27",
+      "title": "Senior Lead AI Engineer"
+    },
+    "4494328297": {
+      "status": "rejected_1",
+      "date": "2026-11-27",
+      "title": "Head of SEO/AEO"
+    },
+    "4495275072": {
+      "status": "rejected_3",
+      "date": "2026-11-27",
+      "title": "SAP Platform Solution Architect"
+    },
+    "4495279618": {
+      "status": "matched_8",
+      "date": "2026-11-27",
+      "title": "Incident & Crisis Response Commander"
     }
   },
   "matched_jobs": [
+    {
+      "id": "4495279618",
+      "title": "Incident & Crisis Response Commander",
+      "company": "PayNet (Payments Network Malaysia)",
+      "location": "Federal Territory of Kuala Lumpur, Malaysia",
+      "posted_at": "2026-11-27",
+      "found_date": "2026-11-27",
+      "url": "https://my.linkedin.com/jobs/view/incident-crisis-response-commander-at-paynet-payments-network-malaysia-4495279618?position=6&pageNum=0",
+      "score": 8,
+      "reason": "The candidate brings strong incident management leadership, having served as primary escalation contact, sustained 98%+ SLA compliance, and reduced SLA breaches by 93%. (Title-based evaluation — click link to view full description on LinkedIn)",
+      "bullets": [
+        "Directed operational incident response and served as primary escalation lead across 8 global business units, maintaining 98%+ SLA compliance on resolutions.",
+        "Engineered real-time SLA and ticket monitoring frameworks that enabled proactive escalation and reduced critical incident breaches by 93% year-over-year.",
+        "Implemented automated Zabbix and Grafana monitoring over 200+ critical jobs and interfaces, rapidly detecting anomalies to prevent high-severity service downtime."
+      ]
+    },
     {
       "id": "4492764373",
       "title": "Senior Manager, ITSM ServiceNow implementation",
