@@ -1,5 +1,5 @@
 {
-  "last_run_utc": "2026-11-27T01:11:47.131601+00:00",
+  "last_run_utc": "2026-11-28T01:06:01.090126+00:00",
   "seen": {
     "4495000653": {
       "status": "no_description",
@@ -300,9 +300,148 @@
       "status": "matched_8",
       "date": "2026-11-27",
       "title": "Incident & Crisis Response Commander"
+    },
+    "4462161459": {
+      "status": "matched_8",
+      "date": "2026-11-28",
+      "title": "GLOBAL SERVICE DESK MANAGER"
+    },
+    "4487794130": {
+      "status": "rejected_5",
+      "date": "2026-11-28",
+      "title": "Manager Field Service Team (Malaysia)"
+    },
+    "4494971993": {
+      "status": "matched_8",
+      "date": "2026-11-28",
+      "title": "Tech Service Engineer Delivery Lead [Malaysia]"
+    },
+    "4479127811": {
+      "status": "rejected_3",
+      "date": "2026-11-28",
+      "title": "BCG Platinion Lead/Principal AI Tech Consultant"
+    },
+    "4493882640": {
+      "status": "rejected_4",
+      "date": "2026-11-28",
+      "title": "Expert Adoption Strategy Manager- AI Expertise"
+    },
+    "4461957356": {
+      "status": "rejected_3",
+      "date": "2026-11-28",
+      "title": "BCG Platinion AI Tech Architect (Hiring across Singapore, Malaysia, Thailand, Indonesia)"
+    },
+    "4495082608": {
+      "status": "rejected_6",
+      "date": "2026-11-28",
+      "title": "Technical Lead"
+    },
+    "4495059773": {
+      "status": "rejected_3",
+      "date": "2026-11-28",
+      "title": "GenAI Solution Architect"
+    },
+    "4493880165": {
+      "status": "rejected_6",
+      "date": "2026-11-28",
+      "title": "AI Governance & Implementation Lead"
+    },
+    "4488121032": {
+      "status": "rejected_6",
+      "date": "2026-11-28",
+      "title": "Data Center IT Operation Manager (Smart Hands)"
+    },
+    "4495592263": {
+      "status": "matched_8",
+      "date": "2026-11-28",
+      "title": "Lead, Platform Engineering & IT Operations"
+    },
+    "4493854583": {
+      "status": "matched_7",
+      "date": "2026-11-28",
+      "title": "Manager, Information Technology"
+    },
+    "4495068275": {
+      "status": "rejected_3",
+      "date": "2026-11-28",
+      "title": "Customer Experience Manager"
+    },
+    "4479779720": {
+      "status": "rejected_5",
+      "date": "2026-11-28",
+      "title": "IT Area Lead, Investment Bank"
+    },
+    "4479366514": {
+      "status": "rejected_5",
+      "date": "2026-11-28",
+      "title": "Customer Support Team Lead"
     }
   },
   "matched_jobs": [
+    {
+      "id": "4462161459",
+      "title": "GLOBAL SERVICE DESK MANAGER",
+      "company": "BizLink Group",
+      "location": "Taman Pulau Pinang, Penang, Malaysia",
+      "posted_at": "2026-11-28",
+      "found_date": "2026-11-28",
+      "url": "https://my.linkedin.com/jobs/view/global-service-desk-manager-at-bizlink-group-4462161459?position=2&pageNum=0",
+      "score": 8,
+      "reason": "Strong alignment with global service desk management, incident management, SLA compliance, and support team leadership. The candidate's track record managing L2 teams and driving operational improvements matches this role well. (Title-based evaluation — click link to view full description on LinkedIn)",
+      "bullets": [
+        "Led global L2 IT service support team sustaining 98%+ SLA compliance on incident management and cutting SLA breaches by 93% YoY via proactive monitoring.",
+        "Directed operational procedures, knowledge base creation, and cross-training to reduce reliance on L3 escalations and streamline resolution workflows.",
+        "Governed end-to-end incident, problem, and change management processes across enterprise environments, ensuring audit-ready IT operations."
+      ]
+    },
+    {
+      "id": "4494971993",
+      "title": "Tech Service Engineer Delivery Lead [Malaysia]",
+      "company": "CSI Interfusion",
+      "location": "Malaysia",
+      "posted_at": "2026-11-28",
+      "found_date": "2026-11-28",
+      "url": "https://my.linkedin.com/jobs/view/tech-service-engineer-delivery-lead-malaysia-at-csi-interfusion-4494971993?position=8&pageNum=0",
+      "score": 8,
+      "reason": "Direct match for technical service delivery leadership, incident resolution, monitoring, and enterprise client support governance. (Title-based evaluation — click link to view full description on LinkedIn)",
+      "bullets": [
+        "Delivered technical service operations maintaining 98%+ SLA compliance for incident resolution across global business units.",
+        "Automated operational health checks and alerting using Zabbix and Grafana, saving ~10 hours monthly and pre-empting critical client-facing escalations.",
+        "Spearheaded daily service reviews and integrated ServiceNow CMDB discovery across 700,000 assets to ensure high service availability and visibility."
+      ]
+    },
+    {
+      "id": "4495592263",
+      "title": "Lead, Platform Engineering & IT Operations",
+      "company": "MOVE",
+      "location": "Federal Territory of Kuala Lumpur, Malaysia",
+      "posted_at": "2026-11-28",
+      "found_date": "2026-11-28",
+      "url": "https://my.linkedin.com/jobs/view/lead-platform-engineering-it-operations-at-move-4495592263?position=9&pageNum=0",
+      "score": 8,
+      "reason": "Strong alignment across IT operations leadership, platform tooling (Linux/Azure/AWS/Kubernetes), monitoring automation, and service excellence. (Title-based evaluation — click link to view full description on LinkedIn)",
+      "bullets": [
+        "Steered enterprise IT operations and automated monitoring implementations, cutting critical incident SLA breaches by 93% year-over-year.",
+        "Leveraged Docker, Kubernetes, Linux, and cloud architectures to manage platform stability and support discovery of 700,000+ enterprise assets.",
+        "Engineered automation workflows via PowerShell, Python, and Grafana/Zabbix to replace manual checks and ensure robust platform resilience."
+      ]
+    },
+    {
+      "id": "4493854583",
+      "title": "Manager, Information Technology",
+      "company": "WD",
+      "location": "Kuching, Sarawak, Malaysia",
+      "posted_at": "2026-11-28",
+      "found_date": "2026-11-28",
+      "url": "https://my.linkedin.com/jobs/view/manager-information-technology-at-wd-4493854583?position=1&pageNum=1",
+      "score": 7,
+      "reason": "Good match for IT management overseeing infrastructure, service operations, compliance, patching, and support governance. (Title-based evaluation — click link to view full description on LinkedIn)",
+      "bullets": [
+        "Managed enterprise IT operations and L2 support teams, sustaining over 98% SLA compliance for global operational units.",
+        "Governed monthly patching approvals, security risk mitigations, and user provisioning audits across a 1,400-user enterprise ecosystem.",
+        "Supervised global IT asset lifecycle and CMDB configuration tracking for 700,000+ assets, standardizing SOPs and operational hygiene."
+      ]
+    },
     {
       "id": "4495279618",
       "title": "Incident & Crisis Response Commander",
